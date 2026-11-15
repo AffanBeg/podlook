@@ -1,0 +1,7 @@
+# Python 3.12 x64. Use one OpenCV wheel; do not also install opencv-python.
+mediapipe==0.10.21
+numpy==1.26.4
+opencv-contrib-python==4.11.0.86
+# MediaPipe imports JAX transitively; pin compatible NumPy 1.26 versions.
+jax==0.7.1
+jaxlib==0.7.1

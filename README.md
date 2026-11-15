@@ -3,9 +3,15 @@
 Free, original iPhone companion source inspired by MousePods. It uses Apple's public
 Core Motion API, so no MagicAAP driver or Windows Test Mode is required.
 
-**Status: iPhone IPA built; 388 Swift assertions, eight Python tests and one simulator
-UI test passed. Installation, physical motion directions and F1 25 integration
-still need verification on real devices.** See [test evidence](TESTING.md).
+**Windows companion:** choose AirPods-only or AirPods + webcam, control sensitivity,
+recenter with Alt+C, and launch OpenTrack from one app. Follow the
+[Windows setup guide](windows/README.md) and [Windows test evidence](docs/windows-testing.md).
+The existing iPhone app remains compatible: change its destination port to **4243**
+when using the companion. The original direct-to-OpenTrack route below uses 4242.
+
+The original iPhone-to-OpenTrack route has been confirmed working in F1 25 by the
+user. New hybrid correction still requires physical direction/calibration checks.
+See [iOS build test evidence](TESTING.md).
 
 AirPods Pro 2 → iPhone (PodLook) → local Wi-Fi UDP → Windows (OpenTrack) → F1 25.
 
@@ -30,7 +36,7 @@ paid overages for this project. The artifact retention is one day.
 An unsigned IPA is a build output, not an already installable or Apple-reviewed app.
 This project does not bundle or require Apple credentials, certificates, or profiles.
 
-## Start tracking
+## Original direct-to-OpenTrack setup (without Windows companion)
 
 1. Install OpenTrack from https://github.com/opentrack/opentrack/releases/latest.
 2. Set Input to **UDP over network**, port **4242**. Set Output to **freetrack 2.0
@@ -46,7 +52,7 @@ This project does not bundle or require Apple credentials, certificates, or prof
    values should remain zero. If left/right or up/down is reversed, use PodLook's
    direction switches. Recenter while looking forward. Set a Center shortcut in
    OpenTrack so you can recenter from the PC while driving.
-6. Start F1 25 and enable Settings → Eye and Head Tracking → Head Tracking with
+6. Enter a driving session in F1 25, pause, and enable Settings → Eye and Head Tracking → Head Tracking with
    TrackIR. Try the cockpit camera. Adjust response curves in OpenTrack; tune gently
    and test yaw/pitch separately before combining them. Roll is off by default.
 

@@ -1,0 +1,113 @@
+name: Build and test Windows companion
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - 'windows/**'
+      - 'tests/**'
+      - 'tools/**'
+      - 'scripts/**'
+      - 'ios/PodLook/Info.plist'
+      - '.github/workflows/windows.yml'
+  pull_request:
+    paths:
+      - 'windows/**'
+      - 'tests/**'
+      - 'tools/**'
+      - 'scripts/**'
+      - 'ios/PodLook/Info.plist'
+      - '.github/workflows/windows.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    env:
+      PODLOOK_TEST_MODEL: ${{ github.workspace }}\build\windows-work\face_landmarker.task
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+          cache: pip
+          cache-dependency-path: windows/requirements.txt
+      - name: Install pinned build and webcam dependencies
+        shell: pwsh
+        run: |
+          python -m pip install -r windows/requirements.txt pyinstaller==6.22.3
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force build/test-logs | Out-Null
+      - name: Download and verify offline face model
+        shell: pwsh
+        run: |
+          python windows/download_model.py --output "$env:PODLOOK_TEST_MODEL"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test packets, fusion, lifecycle and build tooling
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | Tee-Object build/test-logs/core.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test webcam validity and actual blank-frame inference
+        shell: pwsh
+        run: |
+          # No webcam or private image is accessed. Portrait fixture tests are
+          # optional and skip unless PODLOOK_TEST_PORTRAIT is supplied locally.
+          python -m unittest discover -s windows/tests -p 'test_*.py' -v 2>&1 | Tee-Object build/test-logs/webcam.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Smoke-test source GUI without camera or network
+        shell: pwsh
+        run: |
+          python windows/companion.py --smoke-test 2>&1 | Tee-Object build/test-logs/gui-source.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build Windows executable with bundled model
+        shell: pwsh
+        run: |
+          python scripts/build_windows.py 2>&1 | Tee-Object build/test-logs/build.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test packaged GUI and bundled inference runtime
+        shell: pwsh
+        run: |
+          $executable = (Resolve-Path 'build/windows/PodLook/PodLook.exe').Path
+          foreach ($argument in @('--smoke-test', '--model-self-test')) {
+            $process = Start-Process -FilePath $executable -ArgumentList $argument -WindowStyle Hidden -PassThru
+            if (-not $process.WaitForExit(60000)) {
+              $process.Kill()
+              throw "Packaged test timed out: $argument"
+            }
+            $process.Refresh()
+            if ($process.ExitCode -ne 0) {
+              throw "Packaged test failed: $argument (exit $($process.ExitCode))"
+            }
+            "PASS: packaged $argument" | Tee-Object -Append build/test-logs/packaged.txt
+          }
+      - name: Archive complete portable app folder
+        shell: pwsh
+        run: Compress-Archive -Path 'build/windows/PodLook' -DestinationPath 'build/PodLook-Windows.zip'
+      - name: Upload Windows app
+        uses: actions/upload-artifact@v4
+        with:
+          name: PodLook-Windows
+          path: build/PodLook-Windows.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+      - name: Upload verification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PodLook-Windows-test-logs
+          path: build/test-logs
+          if-no-files-found: ignore
+          retention-days: 1

@@ -5,3 +5,12 @@ __pycache__/
 *.pyc
 .DS_Store
 xcuserdata/
+dist/
+.venv/
+venv/
+*.spec
+*.task
+*.download
+*.log
+windows/runtime/
+windows/models/
