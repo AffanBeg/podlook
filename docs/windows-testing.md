@@ -2,16 +2,22 @@
 
 ## Version 0.2 update
 
-- All 48 root tests and all 25 webcam/controller/model tests passed locally.
+- All 48 root tests and all 26 webcam/controller/model tests passed locally.
 - The packaged executable passed GUI and actual-model self-tests (exit 0).
-- Desktop testing verified the visible camera picker, standalone Test webcam,
+- Desktop testing verified discovery of readable cameras, the visible camera picker, standalone Test webcam,
   live camera preview, and closing the preview to stop the camera. No video was
   recorded. Physical face tracking and AirPods alignment still require the user.
-- [Windows CI run 43674693688](https://github.com/AffanBeg/podlook/actions/runs/43674693688)
+- [Windows CI run 43675212003](https://github.com/AffanBeg/podlook/actions/runs/43675212003)
   passed all build, test, packaging and artifact steps. Its two optional portrait
   tests skip; they both passed locally using the public fixture.
 - The old Windows folder was retained locally as a backup and saved sensitivity
   settings were preserved. The current app identifies itself as PodLook 0.2.
+- A packaged scan originally missed a valid camera because its three-second
+  timeout was too short for a cold start. The final build uses an eight-second
+  child-process limit and bounded frame warmup. The hardware scan passed after
+  this fix. An inconclusive scan preserves manual camera choices.
+- The final 0.2 ZIP passed integrity checking (2,661 files); its SHA-256 is
+  `9129aa5a459c3de9fb9d586a444af1a4f26eadd132cec05fea045daa1fa8e056`.
 
 The sections below record the initial 0.1 verification and its original hashes.
 
