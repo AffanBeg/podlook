@@ -1,5 +1,20 @@
 # Windows companion verification
 
+## Version 0.2 update
+
+- All 48 root tests and all 25 webcam/controller/model tests passed locally.
+- The packaged executable passed GUI and actual-model self-tests (exit 0).
+- Desktop testing verified the visible camera picker, standalone Test webcam,
+  live camera preview, and closing the preview to stop the camera. No video was
+  recorded. Physical face tracking and AirPods alignment still require the user.
+- [Windows CI run 43674693688](https://github.com/AffanBeg/podlook/actions/runs/43674693688)
+  passed all build, test, packaging and artifact steps. Its two optional portrait
+  tests skip; they both passed locally using the public fixture.
+- The old Windows folder was retained locally as a backup and saved sensitivity
+  settings were preserved. The current app identifies itself as PodLook 0.2.
+
+The sections below record the initial 0.1 verification and its original hashes.
+
 This report separates automated software checks from tests that need the user's
 AirPods, iPhone, webcam, home network and F1 25 installation. No automated result
 here is an EA approval or a claim of measured head-tracking accuracy.

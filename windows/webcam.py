@@ -27,8 +27,13 @@ def probe_camera(index):
     camera = None
     try:
         camera = _OpenCVCapture(index)
-        ok, frame = camera.read()
-        return bool(ok and frame is not None)
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            ok, frame = camera.read()
+            if ok and frame is not None:
+                return True
+            time.sleep(.05)
+        return False
     except Exception:
         return False
     finally:
@@ -37,7 +42,7 @@ def probe_camera(index):
 
 
 def discover_cameras(cancel=None, *, runner=subprocess.run):
-    """Explicit scan with a three-second child-process limit per device.
+    """Explicit scan with an eight-second child-process limit per device.
 
     Driver enumeration names cannot reliably be mapped to OpenCV indexes, so
     labels deliberately use tested indexes rather than guessed device names.
@@ -48,7 +53,7 @@ def discover_cameras(cancel=None, *, runner=subprocess.run):
         if cancel is not None and cancel.is_set():
             break
         try:
-            result = runner(prefix + ["--probe-camera", str(index)], timeout=3,
+            result = runner(prefix + ["--probe-camera", str(index)], timeout=8,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             if result.returncode == 0:

@@ -10,7 +10,9 @@ AirPods → iPhone PodLook → PC UDP **4243** → Windows PodLook → OpenTrack
 
 Version 0.2 shows **Choose camera**, **Find cameras**, and **Test webcam** at the
 top of the Windows app, even in AirPods-only mode. Find cameras explicitly probes
-indexes 0–8 with a three-second limit per index. Labels use OpenCV camera numbers
+indexes 0–8 with an eight-second limit per index (up to 72 seconds total). This
+allows for packaged-app startup and camera warmup. If a scan cannot confirm a
+camera, choose Camera 0 and try Test webcam directly. Labels use OpenCV camera numbers
 because device names cannot reliably be matched to those indexes. Test webcam
 opens a live local preview without needing the iPhone or OpenTrack. Closing that
 test preview releases the camera. During hybrid tracking, closing the preview

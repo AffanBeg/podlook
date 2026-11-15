@@ -422,7 +422,7 @@ class CompanionApp:
         if self.camera is not None or self.transport is not None or self.scan_thread is not None:
             return
         self.scan_cancel.clear()
-        self.camera_status.set("Checking cameras 0–8 locally; this can take up to 27 seconds…")
+        self.camera_status.set("Checking cameras 0–8 locally; this can take up to 72 seconds…")
         def scan():
             try:
                 from webcam import discover_cameras
@@ -617,10 +617,10 @@ class CompanionApp:
                     current = found[0]
                     self.camera_index.set(str(current))
                 if not found:
-                    choices.append(f"Camera {current} — not detected")
+                    choices = [f"Camera {index} — not confirmed" for index in range(9)]
                 self.camera_selector.configure(values=choices)
                 self.camera_choice.set(next(choice for choice in choices if choice.split()[1] == str(current)))
-                self.camera_status.set(f"Camera scan failed: {error}" if error else f"Found {len(found)} camera(s). Choose one, then Test webcam." if found else "No readable camera found. Check camera access, USB connection, and other apps using it.")
+                self.camera_status.set(f"Camera scan failed: {error}" if error else f"Found {len(found)} camera(s). Choose one, then Test webcam." if found else "Scan did not confirm a camera. Choose Camera 0 and try Test webcam; close other camera apps if it cannot open.")
                 self._set_camera_controls()
         try:
             self._poll_camera(now)

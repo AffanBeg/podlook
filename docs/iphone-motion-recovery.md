@@ -1,5 +1,12 @@
 # iPhone motion recovery update (0.2.0, build 2)
 
+[Build 43674461979](https://github.com/AffanBeg/podlook/actions/runs/43674461979)
+passed the Swift motion/recovery checks, Python regressions, simulator UI test,
+and unsigned iPhone device build. The downloaded artifact hash matched GitHub's
+SHA-256; the extracted IPA passed ZIP integrity checks and its embedded plist
+identifies version 0.2.0, build 2, iPhoneOS. Physical AirPods recovery remains a
+required on-device check.
+
 This update addresses the app's failure to recover when a previously working
 AirPods motion stream stops delivering samples. Bluetooth showing Connected does
 not establish that Core Motion is delivering sensor updates.
@@ -18,12 +25,12 @@ not establish that Core Motion is delivering sensor updates.
   The app does not consume retries while waiting for first-time permission.
 - Sensor permission/availability/activity, received sample count, and network
   status are shown separately. UDP errors no longer stop local motion preview.
-- New installations default to Windows companion port4243; existing settings
-  remain saved. Direct-to-OpenTrack users can continue using4242.
+- New installations default to Windows companion port 4243; existing settings
+  remain saved. Direct-to-OpenTrack users can continue using 4242.
 
 Install the updated IPA with Sideloadly using the same Apple account and bundle
 identifier. Keep the existing app until the replacement is signed and installed.
-Version0.2.0 appears at the bottom of the app. Windows software cannot install an
+Version 0.2.0 appears at the bottom of the app. Windows software cannot install an
 unsigned IPA directly onto the phone.
 
 Automated recovery-policy tests exercise startup silence and its grace period,

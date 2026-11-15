@@ -22,7 +22,7 @@ class DiscoveryTests(unittest.TestCase):
             return SimpleNamespace(returncode=0 if command[-1] in ("0", "3") else 2)
         self.assertEqual(webcam.discover_cameras(runner=runner), [0, 3])
         self.assertEqual(len(calls), 9)
-        self.assertTrue(all(options["timeout"] == 3 for _, options in calls))
+        self.assertTrue(all(options["timeout"] == 8 for _, options in calls))
 
     def test_cancelled_scan_does_not_open_devices(self):
         cancel = threading.Event()
@@ -35,6 +35,13 @@ class DiscoveryTests(unittest.TestCase):
         camera = SimpleNamespace(read=lambda: (_ for _ in ()).throw(RuntimeError("read failed")), close=lambda: None)
         with patch.object(webcam, "_OpenCVCapture", return_value=camera), patch.object(camera, "close") as close:
             self.assertFalse(webcam.probe_camera(0))
+            close.assert_called_once()
+
+    def test_probe_allows_initial_camera_warmup(self):
+        frames = iter([(False, None), (True, object())])
+        camera = SimpleNamespace(read=lambda: next(frames), close=lambda: None)
+        with patch.object(webcam, "_OpenCVCapture", return_value=camera), patch.object(camera, "close") as close:
+            self.assertTrue(webcam.probe_camera(0))
             close.assert_called_once()
 
 
