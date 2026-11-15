@@ -3,7 +3,7 @@ name: Build and test PodLook
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    branches: [main, master, fix/ios-motion-stream]
 
 permissions:
   contents: read
@@ -29,6 +29,10 @@ jobs:
           build/recovery-tests
       - name: Generate Xcode project
         run: python3 scripts/generate_project.py
+      - name: Test bounded background stream handoff
+        run: |
+          swiftc -swift-version 5 -warnings-as-errors ios/PodLook/StreamMailbox.swift tests/stream-mailbox/main.swift -o build/mailbox-tests
+          build/mailbox-tests
       - name: Test project generation and IPA packaging
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v
       - name: Validate project and privacy declarations

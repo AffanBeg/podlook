@@ -24,7 +24,7 @@ final class PodLookUITests: XCTestCase {
         port.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4) + "0")
         dismissKeyboard(app)
         start.tap()
-        XCTAssertTrue(app.staticTexts["Enter a port from 1 to 65535. OpenTrack normally uses 4242."].exists)
+        XCTAssertTrue(app.staticTexts["Enter a port from 1 to 65535. Windows PodLook normally uses 4243."].exists)
 
         port.tap()
         port.typeText(XCUIKeyboardKey.delete.rawValue + "4242")
@@ -46,6 +46,9 @@ final class PodLookUITests: XCTestCase {
         let network = app.staticTexts["networkStatus"]
         revealBelow(network, in: app)
         XCTAssertEqual(network.label, "PC connection stopped.")
+        let diagnostics = app.staticTexts["streamDiagnostics"]
+        revealBelow(diagnostics, in: app)
+        XCTAssertFalse(diagnostics.label.isEmpty)
     }
 
     private func revealBelow(_ element: XCUIElement, in app: XCUIApplication) {

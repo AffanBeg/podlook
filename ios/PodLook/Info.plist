@@ -8,8 +8,8 @@
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.2.0</string>
-    <key>CFBundleVersion</key><string>2</string>
+    <key>CFBundleShortVersionString</key><string>0.3.0</string>
+    <key>CFBundleVersion</key><string>3</string>
     <key>LSRequiresIPhoneOS</key><true/>
     <key>NSMotionUsageDescription</key><string>PodLook reads your AirPods' motion to control the camera in your PC game.</string>
     <key>NSLocalNetworkUsageDescription</key><string>PodLook sends head movement to OpenTrack on the Windows PC you select.</string>

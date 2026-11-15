@@ -56,6 +56,8 @@ struct ContentView: View {
                         .font(.caption).accessibilityIdentifier("receivedSamples")
                     Text(tracker.networkStatus).font(.footnote).foregroundStyle(.secondary)
                         .accessibilityIdentifier("networkStatus")
+                    Text(tracker.diagnostics).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("streamDiagnostics")
                 }
                 Section("Direction") {
                     Toggle("Invert left / right", isOn: $tracker.invertYaw)
@@ -72,7 +74,7 @@ struct ContentView: View {
                     Text("F1 25: Settings → Eye and Head Tracking → Head Tracking with TrackIR.")
                     Text("Motion is sent only to the PC address you enter. No account, ads, or camera access.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Text("PodLook \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown") · Motion recovery update")
+                    Text("PodLook \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown") · Dedicated motion stream")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

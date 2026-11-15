@@ -103,10 +103,12 @@ struct PoseTracker {
     private var filtered = Pose.zero
     private let smoothingSeconds: Double
     private let staleSeconds: Double
+    private let resetOnGap: Bool
 
-    init(smoothingSeconds: Double = 0.04, staleSeconds: Double = 1.0) {
+    init(smoothingSeconds: Double = 0.04, staleSeconds: Double = 1.0, resetOnGap: Bool = true) {
         self.smoothingSeconds = smoothingSeconds.isFinite ? max(0, smoothingSeconds) : 0.04
         self.staleSeconds = staleSeconds.isFinite && staleSeconds > 0 ? staleSeconds : 1.0
+        self.resetOnGap = resetOnGap
     }
 
     mutating func recenter() {
@@ -120,7 +122,7 @@ struct PoseTracker {
     mutating func update(_ attitude: Quaternion, timestamp: Double) -> Pose? {
         guard timestamp.isFinite, timestamp >= 0 else { return nil }
         if let previousTime, timestamp <= previousTime { return nil }
-        if reference == nil || previousTime.map({ timestamp - $0 > staleSeconds }) == true {
+        if reference == nil || (resetOnGap && previousTime.map({ timestamp - $0 > staleSeconds }) == true) {
             reference = attitude
             previousTime = timestamp
             filtered = .zero

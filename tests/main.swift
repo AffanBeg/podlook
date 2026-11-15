@@ -85,6 +85,17 @@ raw.recenter()
 check(raw.update(neutral * relative, timestamp: 2) == .zero, "manual recenter")
 check(raw.update(neutral, timestamp: 4) == .zero, "stale stream recenters")
 
+var continuous = PoseTracker(smoothingSeconds: 0, resetOnGap: false)
+check(continuous.update(neutral, timestamp: 0) == .zero, "continuous stream first neutral")
+for time in [0.1, 2.0, 12.0, 120.0] {
+    checkPose(continuous.update(neutral * relative, timestamp: time)!,
+              yaw: 22, pitch: -11, roll: 7, "stream gap preserves explicit neutral")
+}
+check(continuous.update(.identity, timestamp: 120) == nil, "gap mode still rejects duplicate timestamps")
+check(continuous.update(.identity, timestamp: 119) == nil, "gap mode still rejects old timestamps")
+continuous.recenter()
+check(continuous.update(neutral * relative, timestamp: 121) == .zero, "explicit center still works after gap")
+
 // Calibrating near the global yaw seam must produce a small relative turn, not
 // the almost-full revolution produced by subtracting absolute Euler angles.
 var seamNeutral = PoseTracker(smoothingSeconds: 0)
