@@ -5,6 +5,7 @@ import hashlib
 import subprocess
 import sys
 import urllib.request
+from collect_windows_licenses import collect_licenses
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'windows'))
@@ -35,6 +36,7 @@ def main():
                str(ROOT / 'windows' / 'companion.py')]
     subprocess.run(command, check=True)
     destination = args.dist / 'PodLook'
+    collect_licenses(destination / 'licenses')
     for source, target in [(ROOT / 'windows' / 'README.md', 'README.txt'),
                            (ROOT / 'windows' / 'THIRD_PARTY.md', 'THIRD_PARTY.txt')]:
         if source.is_file():
