@@ -3,12 +3,14 @@ import importlib.util
 import json
 import math
 from pathlib import Path
+import select
 import socket
 import struct
 import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("companion", ROOT / "windows" / "companion.py")
@@ -29,7 +31,7 @@ class TransportTests(unittest.TestCase):
     def setUp(self):
         self.output = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.output.bind(("127.0.0.1", 0))
-        self.output.settimeout(1)
+        self.output.settimeout(2)
         self.addCleanup(self.output.close)
         self.transport = companion.PacketTransport(input_port=0, output_port=self.output.getsockname()[1], bind_address="127.0.0.1")
         self.transport.start()
@@ -39,10 +41,29 @@ class TransportTests(unittest.TestCase):
         self.addCleanup(self.phone.close)
         self.address = ("127.0.0.1", self.transport.input_port)
 
+    def drain_until(self, predicate, now=None):
+        """Wait for observable packet progress, not immediate loopback delivery.
+
+        UDP sendto completion does not promise the receive queue is populated
+        yet. select blocks only until readable, with a bounded failure deadline.
+        Preserve the newest valid result across scheduler-separated batches.
+        """
+        deadline = time.monotonic() + 2
+        newest = None
+        while not predicate():
+            remaining = deadline - time.monotonic()
+            self.assertGreater(remaining, 0, "Timed out waiting for UDP receive counters")
+            readable, _, _ = select.select([self.transport.receiver], [], [], remaining)
+            self.assertTrue(readable, "Timed out waiting for UDP socket readability")
+            sample = self.transport.drain(now=now)
+            if sample is not None:
+                newest = sample
+        return newest
+
     def test_newest_packet_is_returned_and_source_is_pinned(self):
         self.phone.sendto(packet(1, 2, 3), self.address)
         self.phone.sendto(packet(4, 5, 6), self.address)
-        sample = self.transport.drain(now=10.0)
+        sample = self.drain_until(lambda: self.transport.received == 2, now=10.0)
         self.assertEqual(sample.pose, (4, 5, 6))
         self.assertEqual(sample.timestamp, 10.0)
         self.assertEqual(self.transport.received, 2)
@@ -52,20 +73,20 @@ class TransportTests(unittest.TestCase):
         attacker = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.addCleanup(attacker.close)
         attacker.sendto(b"not-pose", self.address)
-        self.assertIsNone(self.transport.drain())
+        self.assertIsNone(self.drain_until(lambda: self.transport.rejected == 1))
         self.assertIsNone(self.transport.sender)
         self.phone.sendto(packet(12), self.address)
-        self.assertEqual(self.transport.drain().pose[0], 12)
+        self.assertEqual(self.drain_until(lambda: self.transport.received == 1).pose[0], 12)
         self.assertEqual(self.transport.sender, self.phone.getsockname())
         self.assertEqual(self.transport.rejected, 1)
 
     def test_second_sender_is_ignored_even_after_long_gap(self):
         self.phone.sendto(packet(1), self.address)
-        self.transport.drain(now=1)
+        self.drain_until(lambda: self.transport.received == 1, now=1)
         second = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.addCleanup(second.close)
         second.sendto(packet(90), self.address)
-        self.assertIsNone(self.transport.drain(now=1000))
+        self.assertIsNone(self.drain_until(lambda: self.transport.foreign == 1, now=1000))
         self.assertEqual(self.transport.foreign, 1)
         self.assertEqual(self.transport.sender, self.phone.getsockname())
 
@@ -90,13 +111,21 @@ class TransportTests(unittest.TestCase):
 
     def test_bounded_drain_does_not_present_backlog_as_fresh(self):
         self.transport.drain_limit = 2
-        for yaw in range(5):
-            self.phone.sendto(packet(yaw), self.address)
-        self.assertIsNone(self.transport.drain(now=1))
-        self.assertEqual(self.transport.received, 2)
-        self.assertEqual(self.transport.overloaded, 1)
-        self.assertIsNone(self.transport.drain(now=2))
-        self.assertEqual(self.transport.drain(now=3).pose, (4, 0, 0))
+        # A controlled, already-populated receive queue is necessary to test
+        # the exact per-tick bound. Real UDP may deliver these in separate batches;
+        # the other transport tests exercise actual loopback delivery.
+        queued_receiver = Mock()
+        queued_receiver.recvfrom.side_effect = [
+            (packet(yaw), self.phone.getsockname()) for yaw in range(5)
+        ] + [BlockingIOError()]
+        with patch.object(self.transport, "receiver", queued_receiver):
+            self.assertIsNone(self.transport.drain(now=1))
+            self.assertEqual(self.transport.received, 2)
+            self.assertEqual(self.transport.overloaded, 1)
+            self.assertEqual(queued_receiver.recvfrom.call_count, 2)
+            self.assertIsNone(self.transport.drain(now=2))
+            self.assertEqual(queued_receiver.recvfrom.call_count, 4)
+            self.assertEqual(self.transport.drain(now=3).pose, (4, 0, 0))
 
     def test_invalid_output_is_not_sent(self):
         for pose in ((math.nan, 0, 0), (0, math.inf, 0), (1, 2)):
@@ -112,12 +141,12 @@ class TransportTests(unittest.TestCase):
         base = time.monotonic()
         for i in range(25):
             self.phone.sendto(packet(12, 3, 2), self.address)
-            incoming = self.transport.drain(now=base + i * 0.02)
+            incoming = self.drain_until(lambda: self.transport.received == i + 1, now=base + i * 0.02)
             self.assertIsNotNone(incoming)
             self.assertTrue(engine.push_airpods(incoming.pose, incoming.timestamp))
         self.assertTrue(engine.calibrate(base + 0.48))
         self.phone.sendto(packet(22, 8, 4), self.address)
-        incoming = self.transport.drain(now=base + 0.50)
+        incoming = self.drain_until(lambda: self.transport.received == 26, now=base + 0.50)
         engine.push_airpods(incoming.pose, incoming.timestamp)
         result = engine.sample(base + 0.50)
         shaped = companion.shape_output(result.pose, yaw_gain=2, pitch_gain=1.5)
