@@ -31,7 +31,7 @@ latency or the webcam's exposure time. Real-device alignment still needs checkin
 
 ## Integration checks executed locally
 
-- The complete root Python suite passed **45 tests** after the global-hotkey and
+- The complete root Python suite passed **48 tests** after the global-hotkey, IPv6 listener and
   real UDP-to-fusion integration tests were added. This includes actual loopback
   sockets and a separate receiver process, not only mocked networking.
 - The source Tk GUI smoke test passed: its widgets initialized and closed without
@@ -43,10 +43,30 @@ latency or the webcam's exposure time. Real-device alignment still needs checkin
   Stopping released the camera. No captured frames were saved. This verifies
   camera access and the no-face path, not positive tracking of the user.
 - The Windows workflow YAML parsed successfully and its runner/permission
-  structure passed local checks. A GitHub-hosted Windows run is still pending.
+  structure passed local checks. [GitHub Windows run 43665543315](https://github.com/AffanBeg/podlook/actions/runs/43665543315) passed all steps, including packaging and both executable self-tests. Its webcam suite runs 16 tests and explicitly skips the two optional portrait-fixture tests; the full 18 passed locally with that public fixture.
 
-Executable packaging and its packaged GUI/model checks are in progress; the
-source test results above must not be presented as packaged-executable results.
+The local executable also passed GUI initialization and actual bundled-model
+inference self-tests (both exit 0). Desktop interaction verified both mode
+selections, automatic OpenTrack startup, webcam no-face reporting, and Stop.
+A synthetic yaw 10 / pitch 5 pose sent through the executable appeared as exactly
+10 / 5 in OpenTrack's raw and game output. Alt+C while OpenTrack had focus
+centered the companion output to zero. The real game was not running during this
+check. The original OpenTrack profile was not edited.
+
+The first macOS regression run exposed immediate-send/read assumptions in three
+network tests. Commit a2046571b58375b5242b3f31fb21463f6a61ab4d corrects the tests
+to wait for bounded packet delivery; all 48 root tests passed again locally.
+Production code is unchanged by this test-only fix.
+The [macOS/iPhone regression run 43665543330](https://github.com/AffanBeg/podlook/actions/runs/43665543330)
+then passed every step: Swift checks, Python regression tests, simulator UI test,
+and unsigned device IPA build. The iPhone app itself was unchanged.
+
+The final local ZIP includes dependency license notices and passes a complete ZIP
+CRC check (2,661 files). SHA-256:
+`330ee0982252cb384d6c4ce7a7e1ef70a8a79087d651ad05280a7b2ed344e83e`.
+The license-copy packaging helper was executed locally after the successful CI
+build; it does not change the executable. The executable SHA-256 is
+`4e3c53618f8d424d5f478cfa48e569720e12470412bca6790cf9b44889e0854b`.
 
 ## Automated Windows workflow
 
@@ -72,7 +92,7 @@ silently open the user's webcam. `PODLOOK_TEST_MODEL` points to a hash-verified
 
 ## Hardware checks still required
 
-- Sideload the iPhone IPA and grant Motion and Local Network access.
+- Keep the already-installed iPhone app; no new IPA is required for this companion.
 - Confirm packets from real AirPods reach Windows port 4243.
 - Verify right/up movements match the app and OpenTrack preview; adjust camera
   inversion only after checking its physical axes against AirPods.
