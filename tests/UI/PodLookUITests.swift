@@ -1,6 +1,9 @@
 import XCTest
 
 final class PodLookUITests: XCTestCase {
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+    }
     func testSetupValidationAndUnavailableHeadphones() {
         let app = XCUIApplication()
         app.launchArguments = ["--uitest-reset"]
@@ -16,13 +19,13 @@ final class PodLookUITests: XCTestCase {
         address.typeText("127.0.0.1")
         dismissKeyboard(app)
         let port = app.textFields["pcPort"]
-        port.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        port.tap()
         port.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4) + "0")
         dismissKeyboard(app)
         start.tap()
         XCTAssertTrue(app.staticTexts["Enter a port from 1 to 65535. OpenTrack normally uses 4242."].exists)
 
-        port.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        port.tap()
         port.typeText(XCUIKeyboardKey.delete.rawValue + "4242")
         dismissKeyboard(app)
         start.tap()

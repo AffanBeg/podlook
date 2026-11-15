@@ -2,7 +2,8 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var tracker: HeadphoneTracker
-    @FocusState private var editingConnection: Bool
+    private enum ConnectionField: Hashable { case address, port }
+    @FocusState private var editingConnection: ConnectionField?
 
     var body: some View {
         NavigationStack {
@@ -20,12 +21,12 @@ struct ContentView: View {
                         .keyboardType(.decimalPad).autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                         .accessibilityIdentifier("pcAddress")
-                        .focused($editingConnection)
+                        .focused($editingConnection, equals: .address)
                         .disabled(tracker.running)
                     TextField("UDP port", text: $tracker.portText)
                         .keyboardType(.numberPad).disabled(tracker.running)
                         .accessibilityIdentifier("pcPort")
-                        .focused($editingConnection)
+                        .focused($editingConnection, equals: .port)
                     Text("In OpenTrack, select UDP over network as input and match this port.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
@@ -69,7 +70,7 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
-                    Button("Done") { editingConnection = false }
+                    Button("Done") { editingConnection = nil }
                         .accessibilityIdentifier("dismissKeyboard")
                 }
             }
