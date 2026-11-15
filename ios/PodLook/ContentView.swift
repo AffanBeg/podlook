@@ -1,0 +1,86 @@
+import SwiftUI
+
+struct ContentView: View {
+    @ObservedObject var tracker: HeadphoneTracker
+    @FocusState private var editingConnection: Bool
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Label("AIRPODS → PC", systemImage: "airpodspro")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.mint)
+                    Text("Look into the corner.")
+                        .font(.title2.bold())
+                    Text("Your head controls the view. Keep PodLook open while driving.")
+                        .foregroundStyle(.secondary)
+                }
+                Section("Windows PC") {
+                    TextField("PC IPv4 address", text: $tracker.host)
+                        .keyboardType(.decimalPad).autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .accessibilityIdentifier("pcAddress")
+                        .focused($editingConnection)
+                        .disabled(tracker.running)
+                    TextField("UDP port", text: $tracker.portText)
+                        .keyboardType(.numberPad).disabled(tracker.running)
+                        .accessibilityIdentifier("pcPort")
+                        .focused($editingConnection)
+                    Text("In OpenTrack, select UDP over network as input and match this port.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Section("Tracking") {
+                    Text(tracker.status).accessibilityIdentifier("trackingStatus")
+                    HStack {
+                        metric("Yaw", tracker.pose.yaw)
+                        Spacer()
+                        metric("Pitch", tracker.pose.pitch)
+                        Spacer()
+                        metric("Roll", tracker.pose.roll)
+                    }
+                    Text("\(tracker.sampleRate) samples/s · \(tracker.sentPackets) packets sent")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    Button(tracker.running ? "Stop tracking" : "Start tracking") {
+                        if tracker.running { tracker.stop() } else { tracker.start() }
+                    }
+                    .accessibilityIdentifier("startStop")
+                    .buttonStyle(.borderedProminent).tint(.mint)
+                    Button("Recenter — look straight ahead") { tracker.recenter() }
+                        .disabled(!tracker.running)
+                }
+                Section("Direction") {
+                    Toggle("Invert left / right", isOn: $tracker.invertYaw)
+                    Toggle("Invert up / down", isOn: $tracker.invertPitch)
+                    Toggle("Enable head tilt", isOn: $tracker.includeRoll)
+                    if tracker.includeRoll {
+                        Toggle("Invert tilt", isOn: $tracker.invertRoll)
+                    }
+                    Text("Tune sensitivity and smoothing in OpenTrack. Start with yaw and pitch only for F1 25.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Section("Before you drive") {
+                    Text("Connect the AirPods to this iPhone. Put both devices on the same home network. Use PC speakers or another headset for game audio.")
+                    Text("F1 25: Settings → Eye and Head Tracking → Head Tracking with TrackIR.")
+                    Text("Motion is sent only to the PC address you enter. No account, ads, or camera access.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("PodLook")
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { editingConnection = false }
+                        .accessibilityIdentifier("dismissKeyboard")
+                }
+            }
+            .scrollDismissesKeyboard(.interactively)
+        }
+    }
+
+    private func metric(_ title: String, _ value: Double) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text(String(format: "%.1f°", value)).font(.title3.monospacedDigit())
+        }
+    }
+}

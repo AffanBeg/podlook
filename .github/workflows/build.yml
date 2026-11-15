@@ -1,0 +1,67 @@
+name: Build and test PodLook
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swiftc --version
+      - name: Test pose math and UDP encoding
+        run: |
+          mkdir -p build
+          swiftc -swift-version 5 -warnings-as-errors ios/PodLook/PoseCore.swift tests/main.swift -o build/core-tests
+          build/core-tests
+      - name: Generate Xcode project
+        run: python3 scripts/generate_project.py
+      - name: Test project generation and IPA packaging
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Validate project and privacy declarations
+        run: |
+          plutil -lint ios/PodLook.xcodeproj/project.pbxproj ios/PodLook/Info.plist
+          xcodebuild -list -project ios/PodLook.xcodeproj
+      - name: Choose available iPhone simulator
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          devices = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', 'available', '-j']))['devices']
+          phones = [d for runtime, items in devices.items() if 'iOS' in runtime for d in items if d['name'].startswith('iPhone') and d.get('isAvailable')]
+          if not phones:
+              raise SystemExit('No available iPhone simulator runtime on runner')
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write('SIMULATOR_ID=' + phones[0]['udid'] + '\n')
+          PY
+      - name: Run iOS UI tests
+        run: |
+          xcodebuild -project ios/PodLook.xcodeproj -scheme PodLook \
+            -configuration Debug -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath build/simulator -resultBundlePath build/UI-tests.xcresult \
+            -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
+      - name: Build unsigned iPhone IPA
+        run: bash scripts/build_ipa.sh
+      - name: Upload sideloadable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PodLook-unsigned-IPA
+          path: build/PodLook-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 1
+      - name: Upload UI test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PodLook-UI-test-results
+          path: build/UI-tests.xcresult
+          if-no-files-found: ignore
+          retention-days: 1
