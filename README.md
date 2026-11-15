@@ -3,8 +3,9 @@
 Free, original iPhone companion source inspired by MousePods. It uses Apple's public
 Core Motion API, so no MagicAAP driver or Windows Test Mode is required.
 
-**Status: source prototype. The iOS build, installation, physical motion directions,
-and F1 25 integration must be verified before this is called working end to end.**
+**Status: iPhone IPA built; 388 Swift assertions, eight Python tests and one simulator
+UI test passed. Installation, physical motion directions and F1 25 integration
+still need verification on real devices.** See [test evidence](TESTING.md).
 
 AirPods Pro 2 → iPhone (PodLook) → local Wi-Fi UDP → Windows (OpenTrack) → F1 25.
 

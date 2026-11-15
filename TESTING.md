@@ -1,6 +1,6 @@
 # Verification status
 
-This is a source prototype, not a verified release. No IPA has been built yet.
+The unsigned iPhone IPA built successfully in [GitHub Actions run 43658033092](https://github.com/AffanBeg/podlook/actions/runs/43658033092), testing commit `42e1c460ab472bc137f61a70dd9492b14a0fe64d`. Physical-device and game testing is still pending.
 
 ## Completed locally on Windows
 
@@ -17,7 +17,12 @@ missing executables and verify the IPA Payload structure and privacy declaration
 - Independent source review: corrected Combine import, callback actor transitions,
   disconnect handling, and keyboard accessibility for UI tests.
 
-## Prepared; must execute on the cloud Mac
+## Passed on the cloud Mac (Xcode 16.4)
+
+- 388 Swift assertions, zero failures.
+- Eight Python unit/integration tests, zero failures.
+- One iPhone simulator UI test, zero failures. The test exposed a shared keyboard-focus issue; independent field focus fixed it before this successful run.
+- Release arm64 iPhone build and unsigned IPA packaging succeeded.
 
 - Swift tests compile and run the actual PoseCore.swift used by the iPhone app:
   quaternion validity, known and combined rotations, arbitrary neutral orientation,
