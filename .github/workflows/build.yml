@@ -23,6 +23,10 @@ jobs:
           mkdir -p build
           swiftc -swift-version 5 -warnings-as-errors ios/PodLook/PoseCore.swift tests/main.swift -o build/core-tests
           build/core-tests
+      - name: Test stalled headphone motion recovery
+        run: |
+          swiftc -swift-version 5 -warnings-as-errors ios/PodLook/MotionRecovery.swift tests/motion-recovery/main.swift -o build/recovery-tests
+          build/recovery-tests
       - name: Generate Xcode project
         run: python3 scripts/generate_project.py
       - name: Test project generation and IPA packaging

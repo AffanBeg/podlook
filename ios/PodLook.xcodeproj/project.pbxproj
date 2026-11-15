@@ -25,6 +25,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "BB91186070E948988CA31D55";
 		};
+		"1EFDFE2AECFBD4491071D64A" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "MotionRecovery.swift";
+			"sourceTree" = "<group>";
+		};
+		"286B69F963198FC72A6D0F8D" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "1EFDFE2AECFBD4491071D64A";
+		};
 		"1EDFBA5BA72FBA4206126EF9" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -56,6 +66,7 @@
 			"children" = (
 				"B1623EB5235658C3521871E5",
 				"BB91186070E948988CA31D55",
+				"1EFDFE2AECFBD4491071D64A",
 				"1EDFBA5BA72FBA4206126EF9",
 				"FC1EB5A076F0A172C23DC9E0",
 				"59BD0A3FF43B32849B319E64",
@@ -228,6 +239,7 @@
 			"files" = (
 				"C0CCDAF105640EFC69D69F1F",
 				"BE7BC701DF2FF8261302E668",
+				"286B69F963198FC72A6D0F8D",
 				"84526C7FE86FC2D8C464E471",
 				"EE0F8ED0AB84993ADF2ED0BF",
 			);

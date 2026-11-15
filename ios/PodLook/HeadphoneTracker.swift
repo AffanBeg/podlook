@@ -7,7 +7,7 @@ import UIKit
 @MainActor
 final class HeadphoneTracker: NSObject, ObservableObject, CMHeadphoneMotionManagerDelegate {
     @Published var host = UserDefaults.standard.string(forKey: "pcAddress") ?? ""
-    @Published var portText = UserDefaults.standard.string(forKey: "pcPort") ?? "4242"
+    @Published var portText = UserDefaults.standard.string(forKey: "pcPort") ?? "4243"
     @Published var invertYaw = true
     @Published var invertPitch = false
     @Published var invertRoll = false
@@ -17,16 +17,28 @@ final class HeadphoneTracker: NSObject, ObservableObject, CMHeadphoneMotionManag
     @Published private(set) var pose = Pose.zero
     @Published private(set) var sentPackets = 0
     @Published private(set) var sampleRate = 0
+    @Published private(set) var networkStatus = "PC connection stopped."
+    @Published private(set) var motionDetails = "Motion sensor not started."
+    @Published private(set) var receivedSamples = 0
 
-    private let motion = CMHeadphoneMotionManager()
+    private var motion = CMHeadphoneMotionManager()
+    private let motionQueue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.name = "PodLook.HeadphoneMotion"
+        queue.maxConcurrentOperationCount = 1
+        queue.qualityOfService = .userInteractive
+        return queue
+    }()
+    private var motionGeneration = UUID()
+    private var recovery = MotionRecovery()
+    private var polling = false
+    private var awaitingMotionPermission = false
     private var connection: NWConnection?
     private var watchdog: Timer?
     private var tracker = PoseTracker(smoothingSeconds: 0)
     private var session = UUID()
     private var ready = false
     private var sendPending = false
-    private var lastSample: TimeInterval?
-    private var startedAt: TimeInterval = 0
     private var rateStart: TimeInterval = 0
     private var rateSamples = 0
     private var stale = true
@@ -35,7 +47,7 @@ final class HeadphoneTracker: NSObject, ObservableObject, CMHeadphoneMotionManag
         super.init()
         if ProcessInfo.processInfo.arguments.contains("--uitest-reset") {
             host = ""
-            portText = "4242"
+            portText = "4243"
         }
     }
 
@@ -56,6 +68,7 @@ final class HeadphoneTracker: NSObject, ObservableObject, CMHeadphoneMotionManag
             status = "Motion access is disabled. Allow PodLook in Settings > Privacy & Security > Motion & Fitness."
             return
         }
+        motion = CMHeadphoneMotionManager()
         guard motion.isDeviceMotionAvailable else {
             status = "No motion-capable headphones available. Connect and wear your AirPods, then try again."
             return
@@ -69,15 +82,18 @@ final class HeadphoneTracker: NSObject, ObservableObject, CMHeadphoneMotionManag
         sentPackets = 0
         rateSamples = 0
         sampleRate = 0
-        lastSample = nil
-        startedAt = ProcessInfo.processInfo.systemUptime
-        rateStart = startedAt
+        receivedSamples = 0
+        let now = ProcessInfo.processInfo.systemUptime
+        recovery.start(now: now)
+        awaitingMotionPermission = authorization == .notDetermined
+        rateStart = now
         stale = true
         ready = false
         sendPending = false
         running = true
         UIApplication.shared.isIdleTimerDisabled = true
-        status = "Opening UDP connection. Allow Local Network and Motion access when asked."
+        status = "Waiting for AirPods motion. Allow Motion access when asked."
+        networkStatus = "Opening UDP connection. Allow Local Network access when asked."
 
         let udp = NWConnection(host: NWEndpoint.Host(destination), port: port, using: .udp)
         connection = udp
@@ -87,57 +103,115 @@ final class HeadphoneTracker: NSObject, ObservableObject, CMHeadphoneMotionManag
                 switch state {
                 case .ready:
                     self.ready = true
-                    self.status = "Waiting for AirPods motion. Face forward for automatic centering."
+                    self.networkStatus = "UDP ready to send. Check receipt in Windows PodLook; this is not a delivery acknowledgment."
                 case .waiting(let error):
                     self.ready = false
-                    self.status = "Network unavailable: \(error.localizedDescription). Check Wi-Fi and Local Network permission."
+                    self.networkStatus = "Network unavailable: \(error.localizedDescription). Motion preview remains active."
                 case .failed(let error):
-                    self.stop(message: "Network error: \(error.localizedDescription)")
+                    self.ready = false
+                    self.networkStatus = "Network error: \(error.localizedDescription). Motion preview remains active. Stop and start both apps to reconnect."
                 default: break
                 }
             }
         }
         udp.start(queue: .main)
-        motion.delegate = self
-        motion.startConnectionStatusUpdates()
-        motion.startDeviceMotionUpdates(to: .main) { [weak self] sample, error in
+        beginMotionAttempt(usePolling: false)
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self = self, self.session == currentSession, self.running else { return }
-                if let error = error {
-                    self.stop(message: "AirPods motion error: \(error.localizedDescription)")
-                    return
-                }
-                guard let sample = sample else { return }
-                self.receive(sample)
-            }
-        }
-        watchdog = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self = self, self.session == currentSession else { return }
+                if self.polling, let sample = self.motion.deviceMotion { self.receive(sample) }
                 self.checkForStaleMotion()
             }
         }
+        watchdog = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     nonisolated func headphoneMotionManagerDidConnect(_ manager: CMHeadphoneMotionManager) {
-        // A connection notification may precede the first sample. Centering is
-        // established by PoseTracker from that sample, not from this callback.
+        Task { @MainActor [weak self] in
+            guard let self = self, self.running, self.motion === manager else { return }
+            if self.stale { self.status = "AirPods connected; waiting for sensor samples." }
+        }
     }
 
     nonisolated func headphoneMotionManagerDidDisconnect(_ manager: CMHeadphoneMotionManager) {
         Task { @MainActor [weak self] in
-            guard let self = self, self.running else { return }
-            self.stop(message: "AirPods disconnected. Reconnect them to this iPhone, then tap Start to recenter and resume.")
+            guard let self = self, self.running, self.motion === manager else { return }
+            self.status = "AirPods motion connection lost. Attempting recovery; face forward."
+            self.tracker.recenter()
+            self.pose = .zero
+            self.stale = true
+            self.send(.zero)
         }
+    }
+
+    // Recreate the Core Motion session instead of leaving a silent stream running forever.
+    // Each generation rejects queued callbacks from the previous manager.
+    private func beginMotionAttempt(usePolling: Bool) {
+        motionGeneration = UUID()
+        let generation = motionGeneration
+        let currentSession = session
+        motion.delegate = nil
+        motion.stopDeviceMotionUpdates()
+        motion.stopConnectionStatusUpdates()
+        motion = CMHeadphoneMotionManager()
+        polling = usePolling
+        tracker.recenter()
+        pose = .zero
+        stale = true
+        sampleRate = 0
+        rateSamples = 0
+        rateStart = ProcessInfo.processInfo.systemUptime
+        motion.delegate = self
+        motion.startConnectionStatusUpdates()
+        if polling {
+            // Apple's second supported API exposes the latest sample via deviceMotion.
+            motion.startDeviceMotionUpdates()
+        } else {
+            motion.startDeviceMotionUpdates(to: motionQueue) { [weak self] sample, error in
+                Task { @MainActor [weak self] in
+                    guard let self = self, self.running, self.session == currentSession,
+                          self.motionGeneration == generation else { return }
+                    if let error = error {
+                        self.status = "Motion stream error: \(error.localizedDescription). Recovery will retry."
+                        return
+                    }
+                    if let sample = sample { self.receive(sample) }
+                }
+            }
+        }
+        updateMotionDetails()
+    }
+
+    func restartAirPods() {
+        guard running else { return }
+        recovery.start(now: ProcessInfo.processInfo.systemUptime)
+        send(.zero)
+        beginMotionAttempt(usePolling: true)
+        status = "Restarting AirPods sensor. Face forward; the next sample becomes center."
+    }
+
+    private func updateMotionDetails() {
+        let permission: String
+        switch CMHeadphoneMotionManager.authorizationStatus() {
+        case .authorized: permission = "allowed"
+        case .denied: permission = "denied"
+        case .restricted: permission = "restricted"
+        case .notDetermined: permission = "not yet granted"
+        @unknown default: permission = "unknown"
+        }
+        let details = "Permission: \(permission) · available: \(motion.isDeviceMotionAvailable ? "yes" : "no") · active: \(motion.isDeviceMotionActive ? "yes" : "no") · \(polling ? "polling" : "callback")"
+        if motionDetails != details { motionDetails = details }
     }
 
     private func receive(_ sample: CMDeviceMotion) {
         let q = sample.attitude.quaternion
         guard let attitude = Quaternion(w: q.w, x: q.x, y: q.y, z: q.z) else { return }
-        guard let raw = tracker.update(attitude, timestamp: sample.timestamp) else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        lastSample = now
+        guard recovery.received(now: now, sampleTimestamp: sample.timestamp) else { return }
+        guard let raw = tracker.update(attitude, timestamp: sample.timestamp) else { return }
         stale = false
+        receivedSamples += 1
         rateSamples += 1
         if now - rateStart >= 1 {
             sampleRate = Int(Double(rateSamples) / (now - rateStart))
@@ -147,10 +221,8 @@ final class HeadphoneTracker: NSObject, ObservableObject, CMHeadphoneMotionManag
         pose = Pose(yaw: raw.yaw * (invertYaw ? -1 : 1),
                     pitch: raw.pitch * (invertPitch ? -1 : 1),
                     roll: includeRoll ? raw.roll * (invertRoll ? -1 : 1) : 0)
-        if ready {
-            status = "Sending motion — verify receipt in OpenTrack on your PC."
-            send(pose)
-        }
+        status = "AirPods motion active."
+        if ready { send(pose) }
     }
 
     private func send(_ value: Pose) {
@@ -163,7 +235,8 @@ final class HeadphoneTracker: NSObject, ObservableObject, CMHeadphoneMotionManag
                 guard let self = self, self.session == currentSession, self.running else { return }
                 self.sendPending = false
                 if let error = error {
-                    self.stop(message: "UDP send failed: \(error.localizedDescription). Check your PC address and network.")
+                    self.ready = false
+                    self.networkStatus = "UDP send failed: \(error.localizedDescription). Motion preview remains active. Stop and start both apps to reconnect."
                 } else {
                     self.sentPackets += 1
                 }
@@ -173,15 +246,34 @@ final class HeadphoneTracker: NSObject, ObservableObject, CMHeadphoneMotionManag
 
     private func checkForStaleMotion() {
         guard running else { return }
-        let elapsed = ProcessInfo.processInfo.systemUptime - (lastSample ?? startedAt)
-        guard elapsed > 1 else { return }
-        if !stale { tracker.recenter() }
-        stale = true
-        pose = .zero
-        sampleRate = 0
-        if ready {
-            status = "No recent AirPods motion. Wear both buds and check their iPhone connection."
-            send(.zero)
+        updateMotionDetails()
+        let authorization = CMHeadphoneMotionManager.authorizationStatus()
+        if authorization == .denied || authorization == .restricted {
+            stop(message: "Motion access is disabled. Allow PodLook in Settings > Privacy & Security > Motion & Fitness.")
+            return
+        }
+        // Do not consume retries while the system is waiting for the user's consent.
+        if authorization == .notDetermined { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        if awaitingMotionPermission {
+            awaitingMotionPermission = false
+            if receivedSamples == 0 { recovery.start(now: now) }
+        }
+        if recovery.isStale(now: now) {
+            if !stale { tracker.recenter(); send(.zero) }
+            stale = true
+            pose = .zero
+            sampleRate = 0
+        }
+        switch recovery.action(now: now) {
+        case .retry(let attempt):
+            beginMotionAttempt(usePolling: true)
+            status = "No sensor samples. Restarting AirPods motion (\(attempt)/3); face forward."
+        case .exhausted:
+            status = "iOS is not delivering AirPods motion after 3 retries. Check the sensor details below, or tap Restart AirPods."
+        case .stale:
+            status = "AirPods motion paused. Waiting briefly before restarting the sensor."
+        default: break
         }
     }
 
@@ -205,6 +297,8 @@ final class HeadphoneTracker: NSObject, ObservableObject, CMHeadphoneMotionManag
         motion.stopDeviceMotionUpdates()
         motion.stopConnectionStatusUpdates()
         motion.delegate = nil
+        motionGeneration = UUID()
+        recovery.stop()
         connection = nil
         if canSendNeutral, let udp = oldConnection, let data = try? Pose.zero.openTrackPacket() {
             udp.stateUpdateHandler = nil
@@ -216,5 +310,7 @@ final class HeadphoneTracker: NSObject, ObservableObject, CMHeadphoneMotionManag
         sampleRate = 0
         UIApplication.shared.isIdleTimerDisabled = false
         status = message
+        networkStatus = "PC connection stopped."
+        updateMotionDetails()
     }
 }

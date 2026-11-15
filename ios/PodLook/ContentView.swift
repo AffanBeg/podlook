@@ -27,11 +27,13 @@ struct ContentView: View {
                         .keyboardType(.numberPad).disabled(tracker.running)
                         .accessibilityIdentifier("pcPort")
                         .focused($editingConnection, equals: .port)
-                    Text("In OpenTrack, select UDP over network as input and match this port.")
+                    Text("Windows PodLook: port 4243. Direct to OpenTrack: port 4242.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Tracking") {
                     Text(tracker.status).accessibilityIdentifier("trackingStatus")
+                    Text(tracker.motionDetails).font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("motionDetails")
                     HStack {
                         metric("Yaw", tracker.pose.yaw)
                         Spacer()
@@ -48,6 +50,12 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent).tint(.mint)
                     Button("Recenter — look straight ahead") { tracker.recenter() }
                         .disabled(!tracker.running)
+                    Button("Restart AirPods sensor") { tracker.restartAirPods() }
+                        .disabled(!tracker.running).accessibilityIdentifier("restartMotion")
+                    Text("\(tracker.receivedSamples) sensor samples received")
+                        .font(.caption).accessibilityIdentifier("receivedSamples")
+                    Text(tracker.networkStatus).font(.footnote).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("networkStatus")
                 }
                 Section("Direction") {
                     Toggle("Invert left / right", isOn: $tracker.invertYaw)
@@ -56,7 +64,7 @@ struct ContentView: View {
                     if tracker.includeRoll {
                         Toggle("Invert tilt", isOn: $tracker.invertRoll)
                     }
-                    Text("Tune sensitivity and smoothing in OpenTrack. Start with yaw and pitch only for F1 25.")
+                    Text("Tune sensitivity in Windows PodLook, or in OpenTrack when using it directly. Start with yaw and pitch only for F1 25.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Before you drive") {
@@ -64,9 +72,12 @@ struct ContentView: View {
                     Text("F1 25: Settings → Eye and Head Tracking → Head Tracking with TrackIR.")
                     Text("Motion is sent only to the PC address you enter. No account, ads, or camera access.")
                         .font(.footnote).foregroundStyle(.secondary)
+                    Text("PodLook \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown") · Motion recovery update")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("PodLook")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()

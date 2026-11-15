@@ -9,6 +9,7 @@ final class PodLookUITests: XCTestCase {
         app.launchArguments = ["--uitest-reset"]
         app.launch()
         XCTAssertTrue(app.navigationBars["PodLook"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.textFields["pcPort"].value as? String, "4243")
 
         let start = app.buttons["startStop"]
         start.tap()
@@ -33,6 +34,26 @@ final class PodLookUITests: XCTestCase {
         // not sensor availability or network delivery on a physical iPhone.
         XCTAssertTrue(app.staticTexts["No motion-capable headphones available. Connect and wear your AirPods, then try again."].waitForExistence(timeout: 5))
         XCTAssertEqual(start.label, "Start tracking")
+
+        // No hardware was started on the simulator. The new recovery control
+        // must not claim sensor samples or a PC connection in this state.
+        let restart = app.buttons["restartMotion"]
+        revealBelow(restart, in: app)
+        XCTAssertFalse(restart.isEnabled)
+        let samples = app.staticTexts["receivedSamples"]
+        revealBelow(samples, in: app)
+        XCTAssertEqual(samples.label, "0 sensor samples received")
+        let network = app.staticTexts["networkStatus"]
+        revealBelow(network, in: app)
+        XCTAssertEqual(network.label, "PC connection stopped.")
+    }
+
+    private func revealBelow(_ element: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<4 {
+            if element.exists && element.isHittable { return }
+            app.swipeUp()
+        }
+        XCTAssertTrue(element.exists && element.isHittable, "Expected tracking diagnostic/control to be reachable")
     }
 
     private func dismissKeyboard(_ app: XCUIApplication) {
