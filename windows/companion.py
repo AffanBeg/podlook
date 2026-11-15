@@ -270,6 +270,11 @@ class CompanionApp:
         self.hotkey = None if smoke_test else CenterHotkey()
         self.transport = self.engine = self.camera = self.bridge = None
         self.stopping_camera = None
+        self.preview_window = self.preview_label = self.preview_photo = None
+        self.last_preview_at = 0.0
+        self.scan_thread = None
+        self.scan_cancel = threading.Event()
+        self.scan_results = queue.SimpleQueue()
         self.calibrate_at = None
         self.last_ui_update = 0.0
         self.last_packet = None
@@ -282,6 +287,7 @@ class CompanionApp:
         self.yaw_gain = tk.DoubleVar(value=prefs.get("yaw_gain", 1.0))
         self.pitch_gain = tk.DoubleVar(value=prefs.get("pitch_gain", 1.0))
         self.camera_index = tk.StringVar(value=str(prefs.get("camera_index", 0)))
+        self.camera_choice = tk.StringVar(value=f"Camera {self.camera_index.get()}")
         self.camera_invert_yaw = tk.BooleanVar(value=prefs.get("camera_invert_yaw", False))
         self.camera_invert_pitch = tk.BooleanVar(value=prefs.get("camera_invert_pitch", False))
         self.status = tk.StringVar(value="Ready. Start tracking, then connect the iPhone app.")
@@ -292,7 +298,6 @@ class CompanionApp:
         self.auto_label = tk.StringVar(value="Automatic yaw correction from webcam" if self.mode.get() == "hybrid" else "Center assist (slow estimate)")
         self.gain_label = tk.StringVar()
         self._build()
-        self.camera_selector.configure(state="normal" if self.mode.get() == "hybrid" else "disabled")
         self._set_camera_controls()
         self._gains_changed()
         root.protocol("WM_DELETE_WINDOW", self.close)
@@ -300,7 +305,7 @@ class CompanionApp:
 
     def _build(self):
         tk, ttk, root = self.tk, self.ttk, self.root
-        root.title("PodLook · AirPods head tracking")
+        root.title("PodLook 0.2 · AirPods head tracking")
         root.geometry(f"760x{min(960, max(650, root.winfo_screenheight() - 160))}")
         root.minsize(700, 650)
         root.configure(bg="#101820")
@@ -329,7 +334,7 @@ class CompanionApp:
         panel.bind("<Configure>", lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.bind("<Configure>", lambda event: canvas.itemconfigure(content, width=event.width))
         root.bind("<MouseWheel>", lambda event: canvas.yview_scroll(-int(event.delta / 120), "units"))
-        ttk.Label(panel, text="PodLook", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(panel, text="PodLook 0.2", style="Title.TLabel").pack(anchor="w")
         ttk.Label(panel, text="AirPods motion. Optional webcam correction. Local game output.", style="Secondary.TLabel").pack(anchor="w", pady=(3, 16))
         modebox = ttk.LabelFrame(panel, text="Tracking mode", padding=12)
         modebox.pack(fill="x", pady=(0, 12))
@@ -339,14 +344,22 @@ class CompanionApp:
         self.hybrid_radio.grid(row=0, column=1, sticky="w")
         camera_line = ttk.Frame(modebox)
         camera_line.grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 0))
-        ttk.Label(camera_line, text="Webcam index:").pack(side="left")
-        self.camera_selector = ttk.Spinbox(camera_line, from_=0, to=8, width=4, textvariable=self.camera_index, state="disabled")
+        ttk.Label(camera_line, text="Choose camera:").pack(side="left")
+        self.camera_selector = ttk.Combobox(camera_line, values=[f"Camera {i}" for i in range(9)], width=20, textvariable=self.camera_choice, state="readonly")
         self.camera_selector.pack(side="left", padx=8)
-        self.camera_yaw_check = ttk.Checkbutton(camera_line, text="Invert webcam yaw", variable=self.camera_invert_yaw)
+        self.camera_selector.bind("<<ComboboxSelected>>", lambda _: self.camera_index.set(self.camera_choice.get().split()[1]))
+        self.scan_button = ttk.Button(camera_line, text="Find cameras", command=self.find_cameras)
+        self.scan_button.pack(side="left", padx=(0, 8))
+        self.test_camera_button = ttk.Button(camera_line, text="Test webcam", command=self.test_camera)
+        self.test_camera_button.pack(side="left")
+        camera_options = ttk.Frame(modebox)
+        camera_options.grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        self.camera_yaw_check = ttk.Checkbutton(camera_options, text="Invert webcam yaw", variable=self.camera_invert_yaw)
         self.camera_yaw_check.pack(side="left", padx=(10, 8))
-        self.camera_pitch_check = ttk.Checkbutton(camera_line, text="Invert webcam pitch", variable=self.camera_invert_pitch)
+        self.camera_pitch_check = ttk.Checkbutton(camera_options, text="Invert webcam pitch", variable=self.camera_invert_pitch)
         self.camera_pitch_check.pack(side="left")
-        ttk.Label(modebox, textvariable=self.camera_status, wraplength=660, style="Secondary.TLabel").grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Label(modebox, textvariable=self.camera_status, wraplength=660, style="Secondary.TLabel").grid(row=3, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Label(modebox, text="Test webcam works without AirPods. Select AirPods + webcam to use it during tracking.", wraplength=660, style="Secondary.TLabel").grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
         connection = ttk.LabelFrame(panel, text="iPhone connection", padding=12)
         connection.pack(fill="x", pady=(0, 12))
         addresses = local_addresses()
@@ -391,14 +404,120 @@ class CompanionApp:
         hybrid = self.mode.get() == "hybrid"
         self.auto.set(hybrid)
         self.auto_label.set("Automatic yaw correction from webcam" if hybrid else "Center assist (slow estimate)")
-        self.camera_selector.configure(state="normal" if hybrid else "disabled")
         self._set_camera_controls()
-        self.camera_status.set("Webcam starts only when tracking starts." if hybrid else "Webcam is off in AirPods-only mode.")
+        if self.camera is None:
+            self.camera_status.set("Select a camera and Test webcam, or Start tracking." if hybrid else "Webcam is off. Test webcam is available without changing tracking mode.")
 
     def _set_camera_controls(self):
         state = "normal" if self.mode.get() == "hybrid" and self.transport is None else "disabled"
         self.camera_yaw_check.configure(state=state)
         self.camera_pitch_check.configure(state=state)
+        busy = self.camera is not None or self.transport is not None or self.scan_thread is not None
+        self.camera_selector.configure(state="disabled" if busy else "readonly")
+        self.scan_button.configure(state="disabled" if busy else "normal")
+        self.test_camera_button.configure(state="disabled" if self.scan_thread is not None else "normal",
+                                          text="Show preview" if self.transport is not None and self.camera is not None else "Stop webcam test" if self.camera is not None else "Test webcam")
+
+    def find_cameras(self):
+        if self.camera is not None or self.transport is not None or self.scan_thread is not None:
+            return
+        self.scan_cancel.clear()
+        self.camera_status.set("Checking cameras 0–8 locally; this can take up to 27 seconds…")
+        def scan():
+            try:
+                from webcam import discover_cameras
+                self.scan_results.put((discover_cameras(self.scan_cancel), None))
+            except Exception as error:
+                self.scan_results.put(([], str(error)))
+        self.scan_thread = threading.Thread(target=scan, name="PodLook camera discovery", daemon=True)
+        self.scan_thread.start()
+        self._set_camera_controls()
+
+    def _open_camera(self):
+        if self.stopping_camera is not None and self.stopping_camera.running:
+            raise RuntimeError("Previous camera session is still stopping. Wait before opening it again.")
+        from webcam import WebcamProvider
+        self.camera = WebcamProvider(camera_index=int(self.camera_index.get()))
+        self.camera.start()
+        self.camera_status.set(self.camera.error or "Opening selected camera…")
+
+    def test_camera(self):
+        if self.scan_thread is not None:
+            return
+        if self.transport is not None and self.camera is None:
+            self.camera_status.set("Stop tracking first to test the webcam, or switch to AirPods + webcam.")
+            return
+        if self.camera is not None and self.transport is None:
+            self._stop_camera()
+            self._set_camera_controls()
+            return
+        try:
+            if self.camera is None:
+                self._open_camera()
+            self._show_preview()
+            self._set_camera_controls()
+        except Exception as error:
+            self.camera_status.set(f"Could not test webcam: {error}")
+
+    def _show_preview(self):
+        if self.preview_window is not None:
+            self.preview_window.lift()
+            return
+        window = self.tk.Toplevel(self.root)
+        window.title(f"PodLook · Camera {self.camera_index.get()} preview")
+        window.geometry("520x430")
+        self.preview_window = window
+        self.preview_label = self.ttk.Label(window, text="Waiting for the first camera frame…", anchor="center")
+        self.preview_label.pack(fill="both", expand=True, padx=12, pady=12)
+        self.ttk.Label(window, textvariable=self.camera_status, wraplength=490).pack(padx=12, pady=8)
+        self.ttk.Label(window, text="Local preview only · no video saved or uploaded", wraplength=490).pack(pady=(0, 12))
+        window.protocol("WM_DELETE_WINDOW", self._close_preview)
+        if self.camera is not None:
+            self.camera.enable_preview(True)
+
+    def _close_preview(self):
+        if self.camera is not None:
+            self.camera.enable_preview(False)
+        if self.preview_window is not None:
+            self.preview_window.destroy()
+        self.preview_window = self.preview_label = self.preview_photo = None
+        if self.transport is None and self.camera is not None:
+            self._stop_camera()
+            self._set_camera_controls()
+
+    def _stop_camera(self):
+        camera, self.camera = self.camera, None
+        if camera is not None:
+            camera.enable_preview(False)
+            camera.stop()
+            if camera.running:
+                self.stopping_camera = camera
+        self._close_preview()
+        self.camera_status.set("Webcam stopped.")
+
+    def _poll_camera(self, now):
+        if self.camera is None:
+            return
+        observation = self.camera.poll()
+        if observation is not None:
+            pose = (observation.yaw * (-1 if self.camera_invert_yaw.get() else 1),
+                    observation.pitch * (-1 if self.camera_invert_pitch.get() else 1), observation.roll)
+            if self.engine is not None and self.transport is not None:
+                self.engine.push_webcam(pose, observation.timestamp, valid=observation.valid)
+            suffix = f" · yaw {pose[0]:+.1f}° / pitch {pose[1]:+.1f}°" if observation.valid else ""
+            self.camera_status.set((self.camera.error or self.camera.status) + suffix)
+        elif self.camera.error:
+            self.camera_status.set(self.camera.error)
+        if self.preview_window is not None and now - self.last_preview_at >= .1:
+            self.last_preview_at = now
+            preview = self.camera.poll_preview()
+            if preview is not None:
+                from PIL import Image, ImageTk
+                frame, _ = preview
+                picture = Image.fromarray(frame[:, :, ::-1])
+                picture.thumbnail((490, 320))
+                self.preview_photo = ImageTk.PhotoImage(picture, master=self.preview_window)
+                self.preview_label.configure(image=self.preview_photo, text="")
 
     def _gains_changed(self):
         self.gain_label.set(f"Horizontal {self.yaw_gain.get():.2f}×   ·   Vertical {self.pitch_gain.get():.2f}×")
@@ -411,6 +530,11 @@ class CompanionApp:
         if self.transport is not None:
             return
         try:
+            if self.scan_thread is not None:
+                self.status.set("Wait for camera discovery to finish before starting tracking.")
+                return
+            if self.camera is not None:
+                self._stop_camera()
             if self.stopping_camera is not None and self.stopping_camera.running:
                 self.status.set("The previous webcam session is still stopping. Wait, or close PodLook if the camera driver stays busy.")
                 return
@@ -434,13 +558,8 @@ class CompanionApp:
             self.transport = PacketTransport()
             self.transport.start()
             if self.mode.get() == "hybrid":
-                try:
-                    from .webcam import WebcamProvider
-                except ImportError:
-                    from webcam import WebcamProvider
-                self.camera = WebcamProvider(camera_index=index)
-                self.camera.start()
-                self.camera_status.set("Opening webcam…")
+                self._open_camera()
+                self._show_preview()
             self.status.set(f"Waiting for AirPods. {bridge_status or ''}")
             self.calibration_status.set("When motion arrives, look forward and click Calibrate.")
             self.last_packet = None
@@ -459,11 +578,7 @@ class CompanionApp:
         if self.transport is not None:
             self.transport.close()
         self.transport = None
-        if self.camera is not None:
-            self.camera.stop()
-            if self.camera.running:
-                self.stopping_camera = self.camera
-        self.camera = None
+        self._stop_camera()
         if self.engine is not None:
             self.engine.reset()
         self.engine = None
@@ -475,7 +590,6 @@ class CompanionApp:
         self.calibrate_button.configure(state="disabled")
         self.airpods_radio.configure(state="normal")
         self.hybrid_radio.configure(state="normal")
-        self.camera_selector.configure(state="normal" if self.mode.get() == "hybrid" else "disabled")
         self._set_camera_controls()
         self.status.set(message)
         self.camera_status.set("Camera driver is still stopping; close PodLook if it does not release." if self.stopping_camera is not None and self.stopping_camera.running else "Webcam stopped.")
@@ -490,6 +604,28 @@ class CompanionApp:
 
     def _tick(self):
         now = time.monotonic()
+        if self.scan_thread is not None:
+            try:
+                found, error = self.scan_results.get_nowait()
+            except queue.Empty:
+                pass
+            else:
+                self.scan_thread = None
+                choices = [f"Camera {index} — detected" for index in found]
+                current = int(self.camera_index.get())
+                if found and current not in found:
+                    current = found[0]
+                    self.camera_index.set(str(current))
+                if not found:
+                    choices.append(f"Camera {current} — not detected")
+                self.camera_selector.configure(values=choices)
+                self.camera_choice.set(next(choice for choice in choices if choice.split()[1] == str(current)))
+                self.camera_status.set(f"Camera scan failed: {error}" if error else f"Found {len(found)} camera(s). Choose one, then Test webcam." if found else "No readable camera found. Check camera access, USB connection, and other apps using it.")
+                self._set_camera_controls()
+        try:
+            self._poll_camera(now)
+        except Exception as error:
+            self.camera_status.set(f"Webcam preview error: {error}")
         if self.stopping_camera is not None and not self.stopping_camera.running:
             self.stopping_camera = None
             if self.camera is None:
@@ -509,17 +645,6 @@ class CompanionApp:
                 if sample is not None:
                     self.engine.push_airpods(sample.pose, sample.timestamp)
                     self.last_packet = now
-                if self.camera is not None:
-                    observation = self.camera.poll()
-                    if observation is not None:
-                        camera_pose = (observation.yaw * (-1 if self.camera_invert_yaw.get() else 1),
-                                       observation.pitch * (-1 if self.camera_invert_pitch.get() else 1), observation.roll)
-                        self.engine.push_webcam(camera_pose,
-                                                observation.timestamp, valid=observation.valid)
-                        suffix = f" · yaw {camera_pose[0]:+.1f}° / pitch {camera_pose[1]:+.1f}°" if observation.valid else ""
-                        self.camera_status.set((self.camera.error or self.camera.status) + suffix)
-                    elif self.camera.error:
-                        self.camera_status.set(self.camera.error)
                 if self.calibrate_at is not None:
                     remaining = self.calibrate_at - now
                     if remaining <= 0:
@@ -566,6 +691,7 @@ class CompanionApp:
             "The phone and PC must share a trusted local network. No router port forwarding is needed.", parent=self.root)
 
     def close(self):
+        self.scan_cancel.set()
         self.stop()
         if self.hotkey is not None:
             self.hotkey.close()
@@ -589,7 +715,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--smoke-test", action="store_true", help="Create the GUI, process events, then exit without camera/network access")
     parser.add_argument("--model-self-test", action="store_true", help="Verify bundled model and inference dependencies with a blank image; does not open a camera")
+    parser.add_argument("--probe-camera", type=int, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.probe_camera is not None:
+        from webcam import probe_camera
+        return 0 if probe_camera(args.probe_camera) else 2
     if args.model_self_test:
         try:
             import numpy as np

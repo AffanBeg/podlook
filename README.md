@@ -3,6 +3,9 @@
 Free, original iPhone companion source inspired by MousePods. It uses Apple's public
 Core Motion API, so no MagicAAP driver or Windows Test Mode is required.
 
+**iPhone0.2.0:** bounded recovery for silent AirPods motion, a manual sensor restart,
+and separate sensor/network diagnostics. See the [update notes](docs/iphone-motion-recovery.md).
+
 **Windows companion:** choose AirPods-only or AirPods + webcam, control sensitivity,
 recenter with Alt+C, and launch OpenTrack from one app. Follow the
 [Windows setup guide](windows/README.md) and [Windows test evidence](docs/windows-testing.md).

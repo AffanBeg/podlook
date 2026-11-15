@@ -12,11 +12,50 @@ import math
 import os
 from pathlib import Path
 import sys
+import subprocess
 import threading
 import time
 
 MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
 MODEL_SHA256 = "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+
+
+def probe_camera(index):
+    """Probe one index in a disposable process; never store captured frames."""
+    if not 0 <= index <= 8:
+        return False
+    camera = None
+    try:
+        camera = _OpenCVCapture(index)
+        ok, frame = camera.read()
+        return bool(ok and frame is not None)
+    except Exception:
+        return False
+    finally:
+        if camera is not None:
+            camera.close()
+
+
+def discover_cameras(cancel=None, *, runner=subprocess.run):
+    """Explicit scan with a three-second child-process limit per device.
+
+    Driver enumeration names cannot reliably be mapped to OpenCV indexes, so
+    labels deliberately use tested indexes rather than guessed device names.
+    """
+    found = []
+    prefix = [sys.executable] if getattr(sys, "frozen", False) else [sys.executable, str(Path(__file__).with_name("companion.py"))]
+    for index in range(9):
+        if cancel is not None and cancel.is_set():
+            break
+        try:
+            result = runner(prefix + ["--probe-camera", str(index)], timeout=3,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if result.returncode == 0:
+                found.append(index)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+    return found
 
 
 def default_model_path() -> Path:
@@ -174,6 +213,8 @@ class WebcamProvider:
         self._threads: list[threading.Thread] = []
         self._frame = None
         self._latest = None
+        self._preview = None
+        self._preview_enabled = False
         self.status = "Webcam off"
         self.error: str | None = None
 
@@ -187,7 +228,7 @@ class WebcamProvider:
         self._stop.clear()
         self._frame_ready.clear()
         with self._lock:
-            self._frame = self._latest = None
+            self._frame = self._latest = self._preview = None
         self.error = None
         self.status = "Starting webcam"
         if self._needs_model:
@@ -209,6 +250,7 @@ class WebcamProvider:
             thread.join(max(0, deadline - time.monotonic()))
         with self._lock:
             self._frame = None
+            self._preview = None
             self._latest = WebcamSample(self._clock(), reason="Webcam stopped")
         self.status = "Webcam stopping" if self.running else "Webcam off"
 
@@ -218,6 +260,20 @@ class WebcamProvider:
         if sample is not None and sample.valid and self._clock() - sample.timestamp > .25:
             return WebcamSample(sample.timestamp, reason="Stale camera frame")
         return sample
+
+    def enable_preview(self, enabled=True):
+        with self._lock:
+            self._preview_enabled = bool(enabled)
+            if not enabled:
+                self._preview = None
+
+    def poll_preview(self):
+        """Consume latest image only, independently of inference's mailbox."""
+        with self._lock:
+            preview, self._preview = self._preview, None
+        if preview is None or self._clock() - preview[1] > 1:
+            return None
+        return preview
 
     def _publish(self, sample):
         with self._lock:
@@ -244,9 +300,11 @@ class WebcamProvider:
                     break
                 with self._lock:
                     self._frame = (frame, captured_at)
+                    if self._preview_enabled:
+                        self._preview = (frame, captured_at)
                 self._frame_ready.set()
         except ImportError:
-            self._fail("Camera dependencies missing. Run setup_windows.cmd first.")
+            self._fail("Camera dependencies missing. Re-extract the complete Windows package; source users install windows/requirements.txt.")
         except Exception as exc:
             self._fail(f"Webcam error: {exc}")
         finally:
@@ -272,7 +330,7 @@ class WebcamProvider:
                 if not self._stop.is_set():
                     self._publish(sample_from_result(result, captured_at, now=self._clock()))
         except ImportError:
-            self._fail("Face tracking dependencies missing. Run setup_windows.cmd first.")
+            self._fail("Face tracking dependencies missing. Re-extract the complete Windows package; source users install windows/requirements.txt.")
         except Exception as exc:
             self._fail(f"Face tracking error: {exc}")
         finally:

@@ -8,6 +8,14 @@ AirPods → iPhone PodLook → PC UDP **4243** → Windows PodLook → OpenTrack
 
 ## First use
 
+Version 0.2 shows **Choose camera**, **Find cameras**, and **Test webcam** at the
+top of the Windows app, even in AirPods-only mode. Find cameras explicitly probes
+indexes 0–8 with a three-second limit per index. Labels use OpenCV camera numbers
+because device names cannot reliably be matched to those indexes. Test webcam
+opens a live local preview without needing the iPhone or OpenTrack. Closing that
+test preview releases the camera. During hybrid tracking, closing the preview
+only hides it; **Stop** releases the camera. Frames are never recorded or uploaded.
+
 1. Extract the entire Windows package into a writable folder. Keep `PodLook.exe`
    and its supporting folders together. Install OpenTrack if it is not already
    installed. Close other OpenTrack windows before starting PodLook.
